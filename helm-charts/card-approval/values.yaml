@@ -1,0 +1,146 @@
+# Card Approval Prediction API
+
+# Namespace
+namespace: card-approval
+
+# PostgreSQL configuration
+postgres:
+  enabled: true
+
+  database: card_approval_db
+  username: app_user
+  password: ""  # Set via --set or values-secrets.yaml
+
+  service:
+    port: 5432
+
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+  persistence:
+    enabled: true
+    storageClass: "standard-rwo"
+    size: 5Gi
+    reclaimPolicy: Retain
+
+# Redis configuration
+redis:
+  enabled: true
+
+  service:
+    port: 6379
+
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "50m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+
+  persistence:
+    enabled: true
+    storageClass: "standard-rwo"
+    size: 1Gi
+    reclaimPolicy: Retain
+
+  config:
+    save: "900 1 300 10 60 10000"
+    maxmemory: "256mb"
+    maxmemoryPolicy: "allkeys-lru"
+
+# Card Approval API configuration
+api:
+  enabled: true
+
+  image:
+    # Format: ${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/${IMAGE_NAME}
+    repository: ""  # Set via --set or values-secrets.yaml
+    tag: "latest"
+    pullPolicy: Always
+
+  replicaCount: 2
+
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 8000
+
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+  config:
+    appName: "Card Approval API"
+    appVersion: "1.0.0"
+    logLevel: "INFO"
+    modelName: "card_approval_model"
+    modelStage: "Production"
+    modelVersion: "latest"
+    modelPath: ""  # Empty = load from MLflow at runtime; "/app/models" = load from embedded model
+
+  # OpenTelemetry Tracing
+  tracing:
+    enabled: true
+    serviceName: "card-approval-api"
+    exporterEndpoint: "http://tempo.monitoring:4317"
+    samplingRate: "1.0"
+
+  # MLflow connection
+  mlflow:
+    trackingUri: "http://card-approval-training-mlflow.card-approval-training.svc.cluster.local:5000"
+
+  # PostgreSQL connection
+  postgres:
+    host: "card-approval-postgres"
+    port: 5432
+    database: "card_approval_db"
+    username: "app_user"
+    password: ""  # Set via --set or values-secrets.yaml
+
+  # Redis connection
+  redis:
+    host: "card-approval-redis"
+    port: 6379
+
+  # Workload Identity for GCS/MLflow access
+  serviceAccount:
+    create: true
+    name: card-approval-api-sa
+    annotations:
+      # Format: service-account@project-id.iam.gserviceaccount.com
+      iam.gke.io/gcp-service-account: ""  # Set for Workload Identity
+
+  # Autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  # Ingress
+  ingress:
+    enabled: false
+    className: "nginx"
+    host: "card-approval-api.example.com"
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+  # Prometheus monitoring & Loki logging
+  monitoring:
+    enabled: true
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "8000"
+      prometheus.io/path: "/metrics"
+      logging_enabled: "true"

@@ -1,0 +1,48 @@
+# MLflow Configuration
+image:
+  repository: ghcr.io/mlflow/mlflow
+  tag: "v3.6.0"
+  pullPolicy: IfNotPresent
+
+
+service:
+  type: ClusterIP
+  port: 5000
+
+# Resource limits
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "500m"
+  limits:
+    memory: "1Gi"
+    cpu: "1000m"
+
+# PostgreSQL backend
+postgres:
+  host: "postgres"
+  port: 5432
+  database: "mlflow"
+  username: "mlflow"
+  password: ""  # Set via --set or values-secrets.yaml
+
+# GCS artifact storage
+gcs:
+  # Format: ${PROJECT_ID}-data or custom bucket name
+  bucket: ""  # Set via --set or values-secrets.yaml
+  artifactPath: "mlflow-artifacts"
+
+# Workload Identity for GCS access
+serviceAccount:
+  create: true
+  name: mlflow-sa
+  annotations:
+    # Format: service-account@project-id.iam.gserviceaccount.com
+    iam.gke.io/gcp-service-account: ""  # Set for Workload Identity
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: "nginx"
+  host: "mlflow.recsys.internal"
+  annotations: {}
