@@ -1,0 +1,104 @@
+# Card Approval API Configuration
+image:
+  # Format: ${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/${IMAGE_NAME}
+  repository: ""  # Set via --set or values-secrets.yaml
+  tag: "latest"
+  pullPolicy: Always
+
+# Number of replicas
+replicaCount: 2
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+# Resource limits
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "100m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+# Application configuration
+config:
+  appName: "Card Approval API"
+  appVersion: "1.0.0"
+  logLevel: "INFO"
+  modelName: "card_approval_model"
+  modelStage: "Production"
+  modelVersion: "latest"
+  modelPath: ""  # Empty = load from MLflow at runtime; "/app/models" = load from embedded model
+
+# OpenTelemetry Tracing
+tracing:
+  enabled: false
+  serviceName: "card-approval-api"
+  exporterEndpoint: ""
+  samplingRate: "1.0"
+
+# MLflow connection
+mlflow:
+  trackingUri: "http://card-approval-training-mlflow.card-approval-training.svc.cluster.local:5000"
+
+# PostgreSQL connection
+postgres:
+  host: "card-approval-postgres"
+  port: 5432
+  database: "card_approval_db"
+  username: "app_user"
+  password: ""  # Set via --set or values-secrets.yaml
+
+# Redis connection
+redis:
+  host: "card-approval-redis"
+  port: 6379
+
+# Health check configuration
+healthCheck:
+  livenessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Workload Identity for GCS access
+serviceAccount:
+  create: true
+  name: card-approval-api-sa
+  annotations:
+    # Link to GCP SA if needed for model access
+    iam.gke.io/gcp-service-account: ""
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: "nginx"
+  host: "card-approval-api.example.com"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+# Autoscaling configuration
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Prometheus monitoring & Loki logging
+monitoring:
+  enabled: true
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+    logging_enabled: "true"  # Required for Grafana Alloy to collect logs to Loki

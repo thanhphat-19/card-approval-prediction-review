@@ -1,0 +1,449 @@
+# Prometheus + Grafana + Loki Monitoring Stack
+# Uses kube-prometheus-stack and loki-stack as foundation
+# Optimized for GKE Standard
+
+# =============================================================================
+# kube-prometheus-stack configuration
+# =============================================================================
+kube-prometheus:
+  # Prometheus Operator
+  prometheusOperator:
+    enabled: true
+    # Tolerations for scheduling
+    tolerations:
+      - effect: NoSchedule
+        operator: Exists
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+    admissionWebhooks:
+      enabled: false
+      patch:
+        enabled: false
+    tls:
+      enabled: false
+
+  # Prometheus Server
+  prometheus:
+    enabled: true
+    prometheusSpec:
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+      retention: 7d
+      retentionSize: "5GB"
+
+      # Graceful shutdown period
+      terminationGracePeriodSeconds: 300
+
+      # Resource limits
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 300m
+          memory: 512Mi
+
+      # Storage
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: standard-rwo
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 20Gi
+
+      # Service discovery
+      serviceMonitorSelectorNilUsesHelmValues: false
+      podMonitorSelectorNilUsesHelmValues: false
+      ruleSelectorNilUsesHelmValues: false
+
+      # Scrape card-approval API
+      additionalScrapeConfigs:
+        - job_name: 'card-approval-api'
+          kubernetes_sd_configs:
+            - role: pod
+              namespaces:
+                names:
+                  - card-approval
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+              action: keep
+              regex: true
+            - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+              action: replace
+              target_label: __metrics_path__
+              regex: (.+)
+            - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+              action: replace
+              regex: ([^:]+)(?::\d+)?;(\d+)
+              replacement: $1:$2
+              target_label: __address__
+            - source_labels: [__meta_kubernetes_namespace]
+              action: replace
+              target_label: namespace
+            - source_labels: [__meta_kubernetes_pod_name]
+              action: replace
+              target_label: pod
+
+  # Grafana
+  grafana:
+    enabled: true
+    tolerations:
+      - effect: NoSchedule
+        operator: Exists
+    adminUser: admin
+    adminPassword: ""  # Set via --set or values-secrets.yaml
+
+    # Resource limits
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 150m
+        memory: 128Mi
+
+    persistence:
+      enabled: false
+
+    service:
+      type: ClusterIP
+      port: 80
+
+    ingress:
+      enabled: false
+
+    grafana.ini:
+      server:
+        root_url: "http://%(domain)s/grafana/"
+        serve_from_sub_path: true
+
+    defaultDashboardsEnabled: true
+    defaultDashboardsTimezone: "Asia/Ho_Chi_Minh"
+
+    # Sidecar containers
+    sidecar:
+      dashboards:
+        enabled: true
+        label: grafana_dashboard
+        labelValue: "1"
+        searchNamespace: ALL
+        resources:
+          requests:
+            cpu: 25m
+            memory: 32Mi
+          limits:
+            cpu: 50m
+            memory: 64Mi
+      datasources:
+        enabled: true
+        resources:
+          requests:
+            cpu: 25m
+            memory: 32Mi
+          limits:
+            cpu: 50m
+            memory: 64Mi
+    # Additional datasources (Loki, Tempo)
+    additionalDataSources:
+      - name: Loki
+        type: loki
+        url: http://monitoring-loki-gateway.monitoring.svc.cluster.local
+        access: proxy
+        isDefault: false
+        jsonData:
+          timeout: 60
+          maxLines: 1000
+          derivedFields:
+            - datasourceUid: tempo
+              matcherRegex: "trace_id=(\\w+)"
+              name: TraceID
+              url: "$${__value.raw}"
+      - name: Tempo
+        type: tempo
+        uid: tempo
+        url: http://tempo.monitoring.svc.cluster.local:3200
+        access: proxy
+        isDefault: false
+        jsonData:
+          httpMethod: GET
+          tracesToLogs:
+            datasourceUid: loki
+            tags: ['job', 'namespace', 'pod']
+            mappedTags: [{ key: 'service.name', value: 'app' }]
+            mapTagNamesEnabled: true
+            filterByTraceID: true
+          serviceMap:
+            datasourceUid: prometheus
+          nodeGraph:
+            enabled: true
+
+  # Alert Manager
+  alertmanager:
+    enabled: false
+
+  # Node Exporter
+  nodeExporter:
+    enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 30Mi
+      limits:
+        cpu: 250m
+        memory: 50Mi
+
+  # Kube State Metrics
+  kube-state-metrics:
+    tolerations:
+      - effect: NoSchedule
+        operator: Exists
+    resources:
+      requests:
+        cpu: 25m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
+
+  # Disable GKE inaccessible components
+  kubeApiServer:
+    enabled: false
+  kubelet:
+    enabled: false
+  kubeControllerManager:
+    enabled: false
+  coreDns:
+    enabled: false
+  kubeEtcd:
+    enabled: false
+  kubeScheduler:
+    enabled: false
+  kubeProxy:
+    enabled: false
+
+# =============================================================================
+# Loki Configuration
+# =============================================================================
+# Using standalone Loki
+loki:
+  # Deploy in single binary mode
+  deploymentMode: SingleBinary
+
+  loki:
+    # Authentication disabled for internal use
+    auth_enabled: false
+
+    # Common config
+    commonConfig:
+      replication_factor: 1
+
+    # Limits config
+    limits_config:
+      volume_enabled: true
+
+    # Storage config
+    storage:
+      type: filesystem
+
+    # Schema config
+    schemaConfig:
+      configs:
+        - from: "2024-01-01"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: loki_index_
+            period: 24h
+
+  # Single binary mode
+  singleBinary:
+    replicas: 1
+    tolerations:
+      - effect: NoSchedule
+        operator: Exists
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    persistence:
+      enabled: true
+      storageClass: standard-rwo
+      size: 5Gi
+
+  # Disable other components
+  read:
+    replicas: 0
+  write:
+    replicas: 0
+  backend:
+    replicas: 0
+
+  # Gateway
+  gateway:
+    enabled: true
+    replicas: 1
+    tolerations:
+      - effect: NoSchedule
+        operator: Exists
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+
+  # Disable test pod
+  test:
+    enabled: false
+
+  # Disable self-monitoring
+  monitoring:
+    selfMonitoring:
+      enabled: false
+      grafanaAgent:
+        installOperator: false
+    lokiCanary:
+      enabled: false
+
+# =============================================================================
+# Alloy Configuration
+# =============================================================================
+# Alloy log collector
+alloy:
+  alloy:
+    # Configure Alloy pipeline
+    configMap:
+      create: true
+      content: |
+        // Discover Kubernetes pods
+        discovery.kubernetes "pods" {
+          role = "pod"
+        }
+
+        // Relabel discovered pods
+        discovery.relabel "pods" {
+          targets = discovery.kubernetes.pods.targets
+
+          // Keep only pods with logging enabled (or all pods)
+          rule {
+            source_labels = ["__meta_kubernetes_pod_annotation_logging_enabled"]
+            regex         = "true"
+            action        = "keep"
+          }
+
+          // Fallback: keep all pods in card-approval namespace
+          rule {
+            source_labels = ["__meta_kubernetes_namespace"]
+            regex         = "card-approval"
+            action        = "keep"
+          }
+
+          // Set namespace label
+          rule {
+            source_labels = ["__meta_kubernetes_namespace"]
+            target_label  = "namespace"
+          }
+
+          // Set pod label
+          rule {
+            source_labels = ["__meta_kubernetes_pod_name"]
+            target_label  = "pod"
+          }
+
+          // Set container label
+          rule {
+            source_labels = ["__meta_kubernetes_pod_container_name"]
+            target_label  = "container"
+          }
+
+          // Set app label
+          rule {
+            source_labels = ["__meta_kubernetes_pod_label_app"]
+            target_label  = "app"
+          }
+
+          // Set job name
+          rule {
+            source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_name"]
+            separator     = "/"
+            target_label  = "job"
+          }
+
+          // Set log file path
+          rule {
+            source_labels = ["__meta_kubernetes_pod_uid", "__meta_kubernetes_pod_container_name"]
+            separator     = "/"
+            target_label  = "__path__"
+            replacement   = "/var/log/pods/*$1/*.log"
+          }
+        }
+
+        // Collect logs from Kubernetes pods
+        loki.source.kubernetes "pods" {
+          targets    = discovery.relabel.pods.output
+          forward_to = [loki.process.pods.receiver]
+        }
+
+        // Process logs - add labels and parse JSON if applicable
+        loki.process "pods" {
+          stage.json {
+            expressions = {
+              level   = "level",
+              message = "message",
+              time    = "time",
+            }
+          }
+
+          stage.labels {
+            values = {
+              level = "",
+            }
+          }
+
+          forward_to = [loki.write.default.receiver]
+        }
+
+        // Send logs to Loki
+        loki.write "default" {
+          endpoint {
+            url = "http://monitoring-loki-gateway.monitoring.svc.cluster.local/loki/api/v1/push"
+          }
+        }
+
+  # Controller settings
+  controller:
+    type: daemonset
+    replicas: 1
+    tolerations:
+      - effect: NoSchedule
+        operator: Exists
+
+  # Resources
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # Service account
+  serviceAccount:
+    create: true
+
+  # RBAC
+  rbac:
+    create: true

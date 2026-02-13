@@ -1,0 +1,72 @@
+# MLflow Training Infrastructure
+
+# Namespace
+namespace: card-approval-training
+
+# PostgreSQL configuration
+postgres:
+  enabled: true
+
+  database: mlflow
+  username: mlflow
+  password: ""  # Set via --set or values-secrets.yaml
+
+  service:
+    port: 5432
+
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+  # Persistent storage
+  persistence:
+    enabled: true
+    storageClass: "standard-rwo"
+    size: 10Gi
+    reclaimPolicy: Retain
+
+# MLflow configuration
+mlflow:
+  enabled: true
+
+  service:
+    port: 5000
+
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+
+  # PostgreSQL connection
+  postgres:
+    host: "card-approval-training-postgres"
+    port: 5432
+    database: "mlflow"
+    username: "mlflow"
+    password: ""  # Set via --set or values-secrets.yaml
+
+  # GCS artifact storage
+  gcs:
+    # Format: ${PROJECT_ID}-data or custom bucket name
+    bucket: ""  # Set via --set or values-secrets.yaml
+    artifactPath: "mlflow-artifacts"
+
+  # Workload Identity for GCS access
+  serviceAccount:
+    create: true
+    name: mlflow-sa
+    annotations:
+      iam.gke.io/gcp-service-account: ""
+
+  # Ingress
+  ingress:
+    enabled: false
+    className: "nginx"
+    host: "mlflow.card-approval.internal"
